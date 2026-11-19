@@ -1,0 +1,1516 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nyx 宇宙密度演化 · 体渲染与相空间刷选</title>
+<style>
+    :root {
+        --bg: #04060c;
+        --panel: rgba(13, 20, 32, 0.92);
+        --line: rgba(120, 160, 220, 0.16);
+        --text: #dbe6f5;
+        --muted: #7d8ea8;
+        --accent: #4da3ff;
+        --accent2: #ffb86c;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+    body {
+        font-family: "Inter", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+        font-size: 13px;
+        line-height: 1.55;
+    }
+    h1, h2, h3 { margin: 0; font-weight: 600; }
+    button, input, select { font-family: inherit; }
+
+    /* ---------- 顶栏 ---------- */
+    #topbar {
+        position: sticky; top: 0; z-index: 30;
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 16px; padding: 10px 18px;
+        background: rgba(6, 10, 18, 0.94);
+        border-bottom: 1px solid var(--line);
+        backdrop-filter: blur(8px);
+    }
+    .brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+    .brand .dot {
+        width: 9px; height: 9px; border-radius: 50%;
+        background: radial-gradient(circle at 30% 30%, #b7e0ff, #2b7fff 60%, #0b2a66);
+        box-shadow: 0 0 12px #2b7fff; flex: none; align-self: center;
+    }
+    .brand h1 { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .brand .sub { color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 11px; border-radius: 6px;
+        border: 1px solid rgba(120, 160, 220, 0.28);
+        background: rgba(30, 46, 70, 0.55);
+        color: #cfe0f5; font-size: 12px; font-weight: 600;
+        cursor: pointer; text-decoration: none; white-space: nowrap;
+        transition: background .16s, border-color .16s, color .16s;
+    }
+    .btn:hover { background: rgba(59, 130, 246, 0.22); border-color: var(--accent); color: #fff; }
+    .btn.primary { background: rgba(59, 130, 246, 0.22); border-color: rgba(77, 163, 255, 0.55); color: #eaf3ff; }
+    .btn.mini { padding: 3px 8px; font-size: 11px; font-weight: 500; }
+
+    /* ---------- 主舞台 ---------- */
+    #stage {
+        display: flex; height: calc(100vh - 56px); min-height: 560px;
+        border-bottom: 1px solid var(--line);
+    }
+    #viewer { position: relative; flex: 1 1 auto; min-width: 0; background: #04060c; overflow: hidden; }
+    #gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
+    #gl:active { cursor: grabbing; }
+    #vignette {
+        position: absolute; inset: 0; pointer-events: none;
+        background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.55) 100%);
+    }
+    #hud {
+        position: absolute; top: 14px; left: 16px; pointer-events: none;
+        background: rgba(6, 12, 22, 0.62); border: 1px solid var(--line);
+        border-radius: 8px; padding: 10px 12px; min-width: 220px;
+        backdrop-filter: blur(6px);
+    }
+    #hud .hud-title { font-size: 11px; letter-spacing: .08em; color: var(--muted); margin-bottom: 6px; }
+    #hud .hud-row { display: flex; justify-content: space-between; gap: 18px; font-size: 12px; margin: 2px 0; }
+    #hud .hud-row b { color: #fff; font-variant-numeric: tabular-nums; font-weight: 600; }
+    #hud .sel { color: var(--accent2); }
+    #hint {
+        position: absolute; bottom: 12px; left: 16px; color: rgba(160, 185, 215, 0.55);
+        font-size: 11px; pointer-events: none;
+    }
+    #noData {
+        position: absolute; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; text-align: center;
+        padding: 24px; background: radial-gradient(ellipse at center, rgba(14, 24, 42, 0.55), rgba(4, 6, 12, 0.85));
+    }
+    #noData h2 { font-size: 20px; margin-bottom: 10px; color: #eaf2ff; }
+    #noData p { color: var(--muted); max-width: 620px; margin: 4px 0; font-size: 12.5px; }
+    #loading {
+        position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%);
+        width: min(420px, 70%); padding: 12px 14px;
+        background: rgba(8, 14, 26, 0.9); border: 1px solid var(--line);
+        border-radius: 8px; display: none; z-index: 5;
+    }
+    #loading.show { display: block; }
+    #loading .bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; }
+    #loading .bar i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #2b7fff, #7fd0ff); transition: width .15s; }
+    #loading .txt { margin-top: 7px; font-size: 11px; color: #a9bdd6; display: flex; justify-content: space-between; }
+
+    /* ---------- 右侧控制栏 ---------- */
+    #panel {
+        width: 402px; flex: none; overflow-y: auto; overscroll-behavior: contain;
+        background: #070c15; border-left: 1px solid var(--line);
+        padding: 12px; display: flex; flex-direction: column; gap: 12px;
+    }
+    #panel::-webkit-scrollbar { width: 6px; }
+    #panel::-webkit-scrollbar-thumb { background: #26364e; border-radius: 3px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px 13px; }
+    .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    .card-head h2 { font-size: 12px; letter-spacing: .06em; color: #a9c4e4; text-transform: none; }
+    .card-head .tag { font-size: 10px; color: var(--muted); }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 7px 0; }
+    .row label { color: #a9bdd6; font-size: 12px; white-space: nowrap; }
+    .row .val { color: var(--accent); font-variant-numeric: tabular-nums; font-size: 11.5px; min-width: 52px; text-align: right; }
+    input[type=range] {
+        -webkit-appearance: none; appearance: none; width: 100%; height: 4px;
+        border-radius: 2px; background: #22324a; outline: none; margin: 4px 0;
+    }
+    input[type=range]::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none; width: 13px; height: 13px;
+        border-radius: 50%; background: var(--accent); cursor: pointer;
+        box-shadow: 0 0 8px rgba(59,130,246,.7);
+    }
+    select {
+        background: #101a2b; color: var(--text); border: 1px solid #26364e;
+        border-radius: 5px; padding: 4px 8px; font-size: 12px; min-width: 110px;
+    }
+    .switch { position: relative; display: inline-block; width: 34px; height: 19px; flex: none; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .switch span {
+        position: absolute; inset: 0; border-radius: 10px; background: #26364e; transition: .2s; cursor: pointer;
+    }
+    .switch span:before {
+        content: ""; position: absolute; width: 15px; height: 15px; left: 2px; top: 2px;
+        border-radius: 50%; background: #fff; transition: .2s;
+    }
+    .switch input:checked + span { background: var(--accent); }
+    .switch input:checked + span:before { transform: translateX(15px); }
+    .btn-group { display: flex; gap: 6px; }
+    .btn-group .btn { flex: 1; justify-content: center; padding: 5px 4px; font-size: 11px; }
+    .btn-group .btn.active { background: rgba(59,130,246,.3); border-color: var(--accent); color: #fff; }
+    .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-top: 9px; }
+    .stat-grid div { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); }
+    .stat-grid b { color: #dce9fb; font-variant-numeric: tabular-nums; font-weight: 600; }
+    canvas.chart { width: 100%; display: block; border-radius: 6px; background: rgba(4, 8, 15, 0.55); }
+    #histWrap { position: relative; }
+    #hist { height: 176px; cursor: crosshair; touch-action: none; }
+    #evo { height: 128px; margin-top: 4px; }
+    #quant { height: 118px; margin-top: 4px; }
+    #overlay { height: 132px; margin-top: 4px; }
+    .chart-note { font-size: 10.5px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
+    .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 10.5px; color: var(--muted); margin-top: 4px; }
+    .legend i { display: inline-block; width: 9px; height: 3px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+
+    .err { color: #ff8b8b; }
+
+    @media (max-width: 1080px) {
+        #stage { flex-direction: column; height: auto; }
+        #viewer { height: 62vh; min-height: 460px; }
+        #panel { width: 100%; max-height: none; border-left: none; border-top: 1px solid var(--line); }
+    }
+</style>
+</head>
+<body>
+<header id="topbar">
+    <div class="brand">
+        <span class="dot"></span>
+        <h1>Nyx 宇宙密度演化 · 体渲染与相空间刷选</h1>
+    </div>
+    <div class="top-actions">
+        <button id="btnSample" class="btn primary">加载示例（5 步）</button>
+        <label class="btn">选择 .dat 文件
+            <input id="fileInput" type="file" accept=".dat" multiple hidden>
+        </label>
+        <label class="btn">选择数据文件夹
+            <input id="dirInput" type="file" webkitdirectory hidden>
+        </label>
+        <button id="btnShot" class="btn">导出当前视图 PNG</button>
+        <a class="btn" href="explorer.html">宇宙网模拟演示</a>
+    </div>
+</header>
+
+<div id="stage">
+    <section id="viewer">
+        <canvas id="gl"></canvas>
+        <div id="vignette"></div>
+
+        <div id="hud">
+            <div class="hud-title">当前视图</div>
+            <div class="hud-row"><span>时间步</span><b id="hudStep">—</b></div>
+            <div class="hud-row"><span>密度范围（log₁₀ρ）</span><b id="hudRange">—</b></div>
+            <div class="hud-row"><span>均值 / 标准差</span><b id="hudStats">—</b></div>
+            <div class="hud-row sel"><span>刷选区间</span><b id="hudSel">未启用</b></div>
+            <div class="hud-row sel"><span>选中体素</span><b id="hudSelCount">—</b></div>
+        </div>
+        <div id="hint">拖拽旋转 · 滚轮缩放 · 双击复位</div>
+
+        <div id="noData">
+            <h2>尚未加载 Nyx 数据</h2>
+            <p>点击顶部"加载示例（5 步）"快速体验，或选择解压后的 Nyx 数据文件夹（0000.dat ~ 0099.dat，共 100 个时间步）。</p>
+            <p>每个文件为 128×128×128 的 float32 小端密度场，列优先存储（z → y → x）。</p>
+        </div>
+
+        <div id="loading">
+            <div class="bar"><i id="loadBar"></i></div>
+            <div class="txt"><span id="loadText">正在加载…</span><span id="loadPct">0%</span></div>
+        </div>
+    </section>
+
+    <aside id="panel">
+        <div class="card">
+            <div class="card-head"><h2>时间步演化</h2><span class="tag" id="stepTag">未加载</span></div>
+            <div class="row">
+                <button id="btnPlay" class="btn" style="flex:1;justify-content:center">播放</button>
+                <button id="btnPrev" class="btn" style="padding:5px 9px">◀</button>
+                <button id="btnNext" class="btn" style="padding:5px 9px">▶</button>
+            </div>
+            <input id="stepRange" type="range" min="0" max="4" value="0" step="1">
+            <div class="row"><label>当前时间步</label><span class="val" id="stepLabel">— / —</span></div>
+            <div class="stat-grid">
+                <div><span>均值</span><b id="stMean">—</b></div>
+                <div><span>标准差</span><b id="stStd">—</b></div>
+                <div><span>1% 分位</span><b id="stP1">—</b></div>
+                <div><span>99% 分位</span><b id="stP99">—</b></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-head"><h2>传递函数与光照</h2><span class="tag">体渲染参数</span></div>
+            <div class="row"><label>色带</label>
+                <select id="themeSel">
+                    <option value="inferno">炽焰（Inferno）</option>
+                    <option value="viridis">维里迪斯（Viridis）</option>
+                    <option value="icefire">冰火（Ice-fire）</option>
+                    <option value="mono">灰阶</option>
+                </select>
+            </div>
+            <div class="row"><label>映射下界</label><span class="val" id="lutMinVal">—</span></div>
+            <input id="lutMin" type="range" step="0.01" value="8.4">
+            <div class="row"><label>映射上界</label><span class="val" id="lutMaxVal">—</span></div>
+            <input id="lutMax" type="range" step="0.01" value="11.0">
+            <div class="row"><label>不透明度</label><span class="val" id="opacityVal">1.00</span></div>
+            <input id="opacity" type="range" min="0.05" max="3" step="0.05" value="1">
+            <div class="row"><label>伽马校正</label><span class="val" id="gammaVal">1.00</span></div>
+            <input id="gamma" type="range" min="0.3" max="3" step="0.05" value="1">
+            <div class="row"><label>光照（梯度法向）</label>
+                <label class="switch"><input id="lightOn" type="checkbox" checked><span></span></label>
+            </div>
+            <div class="row"><label>光照强度</label><span class="val" id="lightVal">1.00</span></div>
+            <input id="lightStrength" type="range" min="0" max="2" step="0.05" value="1">
+            <div class="row"><label>光线步数</label>
+                <select id="stepsSel">
+                    <option value="128">128（流畅）</option>
+                    <option value="192">192</option>
+                    <option value="256" selected>256（推荐）</option>
+                    <option value="384">384（高精度）</option>
+                </select>
+            </div>
+            <div class="row"><label>自动旋转</label>
+                <label class="switch"><input id="autoRotate" type="checkbox"><span></span></label>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-head"><h2>密度对数直方图 · 刷选</h2><button class="btn mini" id="exportHist">导出 PNG</button></div>
+            <div id="histWrap"><canvas id="hist" class="chart"></canvas></div>
+            <div class="btn-group" style="margin-top:8px">
+                <button class="btn" data-preset="high">极高密度 1%</button>
+                <button class="btn" data-preset="low">空洞 1%</button>
+                <button class="btn" data-preset="mid">中间 90%</button>
+                <button class="btn" id="btnClearSel">清除</button>
+            </div>
+            <div class="row" style="margin-top:9px"><label>筛选显示模式</label></div>
+            <div class="btn-group" id="selModeGroup">
+                <button class="btn active" data-mode="0">全部</button>
+                <button class="btn" data-mode="1">仅选中</button>
+                <button class="btn" data-mode="2">上下文淡化</button>
+            </div>
+            <div class="chart-note" id="selInfo">在直方图上拖拽框选密度区间，三维视图将实时只渲染匹配的体素。</div>
+        </div>
+
+        <div class="card">
+            <div class="card-head"><h2>演化统计（全部时间步）</h2><button class="btn mini" id="exportEvo">导出 PNG</button></div>
+            <canvas id="evo" class="chart"></canvas>
+            <div class="legend">
+                <span><i style="background:#ff9f6b"></i>均值</span>
+                <span><i style="background:#6fd6ff"></i>标准差</span>
+            </div>
+            <canvas id="quant" class="chart"></canvas>
+            <div class="legend">
+                <span><i style="background:#ff6b8b"></i>1% 分位</span>
+                <span><i style="background:#e8eefc"></i>50% 分位</span>
+                <span><i style="background:#8ef0b8"></i>99% 分位</span>
+            </div>
+            <div class="chart-note">随演化推进：均值下降、标准差增大、低密度左尾持续拉长，呈现明显的"团块化"。</div>
+        </div>
+
+        <div class="card">
+            <div class="card-head"><h2>多时间步直方图叠加</h2><button class="btn mini" id="exportOverlay">导出 PNG</button></div>
+            <canvas id="overlay" class="chart"></canvas>
+            <div class="chart-note" id="overlayNote">加载多个时间步后，这里会叠加展示分布形态的演化。</div>
+        </div>
+    </aside>
+</div>
+
+
+<script src="src/nyx-data.js"></script>
+<script>
+(function () {
+    'use strict';
+
+    /* ================================================================
+     * 0. 常量与工具
+     * ================================================================ */
+    const VOCAB = 128;                       // 体数据边长
+    const SAMPLE_STEPS = ['0000', '0025', '0050', '0075', '0099'];
+    const THEME_STOPS = {
+        inferno: [[0, '#000004'], [0.22, '#320a5e'], [0.45, '#8a2268'], [0.68, '#d4483f'], [0.86, '#f88d16'], [1, '#fcffa4']],
+        viridis: [[0, '#440154'], [0.28, '#3b528b'], [0.52, '#21918c'], [0.76, '#5ec962'], [1, '#fde725']],
+        icefire: [[0, '#16357d'], [0.33, '#2396c9'], [0.5, '#f0f2f5'], [0.68, '#f0a63a'], [1, '#9c1527']],
+        mono: [[0, '#080808'], [0.6, '#8c8c8c'], [1, '#ffffff']]
+    };
+
+    const $ = (id) => document.getElementById(id);
+    const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);
+    const hexToRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+
+    function makeColormap(theme) {
+        const stops = THEME_STOPS[theme] || THEME_STOPS.inferno;
+        const arr = new Uint8ClampedArray(256 * 3);
+        for (let i = 0; i < 256; i++) {
+            const t = i / 255;
+            let k = 0;
+            while (k < stops.length - 2 && t > stops[k + 1][0]) k++;
+            const [p0, c0] = stops[k];
+            const [p1, c1] = stops[k + 1];
+            const f = clamp((t - p0) / Math.max(1e-6, p1 - p0), 0, 1);
+            const a = hexToRgb(c0), b = hexToRgb(c1);
+            arr[i * 3] = a[0] + (b[0] - a[0]) * f;
+            arr[i * 3 + 1] = a[1] + (b[1] - a[1]) * f;
+            arr[i * 3 + 2] = a[2] + (b[2] - a[2]) * f;
+        }
+        return arr;
+    }
+    const colormaps = {};
+    for (const k in THEME_STOPS) colormaps[k] = makeColormap(k);
+
+    /* ================================================================
+     * 1. 全局状态
+     * ================================================================ */
+    const state = {
+        dataset: null,
+        step: 0,
+        playing: false,
+        volumeIndex: -1,
+        dirty: true,
+        tf: {
+            theme: 'inferno', lo: 8.4, hi: 11.0,
+            opacity: 1.0, gamma: 1.0,
+            lightOn: true, lightStrength: 1.0,
+            steps: 256, autoRotate: false
+        },
+        sel: { active: false, min: 0, max: 0, mode: 0 },
+        cam: { theta: 0.85, phi: 0.3, dist: 2.15, target: [0.5, 0.5, 0.5] },
+        texMin: 7.5,
+        texMax: 14.5
+    };
+
+    const els = {
+        gl: $('gl'), noData: $('noData'), loading: $('loading'), loadBar: $('loadBar'),
+        loadText: $('loadText'), loadPct: $('loadPct'),
+        hudStep: $('hudStep'), hudRange: $('hudRange'), hudStats: $('hudStats'),
+        hudSel: $('hudSel'), hudSelCount: $('hudSelCount'),
+        stepRange: $('stepRange'), stepLabel: $('stepLabel'), stepTag: $('stepTag'),
+        stMean: $('stMean'), stStd: $('stStd'), stP1: $('stP1'), stP99: $('stP99'),
+        playBtn: $('btnPlay'),
+        hist: $('hist'), evo: $('evo'), quant: $('quant'), overlay: $('overlay'),
+        selInfo: $('selInfo'), overlayNote: $('overlayNote')
+    };
+
+    /* ================================================================
+     * 2. WebGL2 初始化
+     * ================================================================ */
+    const gl = els.gl.getContext('webgl2', {
+        antialias: false, alpha: false, depth: false,
+        preserveDrawingBuffer: true, powerPreference: 'high-performance'
+    });
+
+    let program = null, uniforms = {}, texVol = null, texLut = null;
+    let volReady = false;
+    let glError = null;
+
+    const VS = `#version 300 es
+    const vec2 verts[3] = vec2[3](vec2(-1.0,-1.0), vec2(3.0,-1.0), vec2(-1.0,3.0));
+    void main() { gl_Position = vec4(verts[gl_VertexID], 0.0, 1.0); }`;
+
+    const FS = `#version 300 es
+    precision highp float;
+    precision highp sampler3D;
+
+    uniform sampler3D uVol;
+    uniform sampler2D uLut;
+    uniform vec2 uResolution;
+    uniform vec3 uCamPos;
+    uniform vec3 uCamRight;
+    uniform vec3 uCamUp;
+    uniform vec3 uCamFwd;
+    uniform float uTanHalfFov;
+    uniform float uAspect;
+    uniform float uTexMin;
+    uniform float uTexRange;
+    uniform float uLutMin;
+    uniform float uLutMax;
+    uniform int uSteps;
+    uniform int uSelMode;
+    uniform float uSelMin;
+    uniform float uSelMax;
+    uniform float uOpacity;
+    uniform vec3 uLightDir;
+    uniform float uLightStrength;
+    uniform float uAmbient;
+    uniform float uSpecular;
+    uniform float uLightOn;
+
+    out vec4 fragColor;
+
+    float densityAt(vec3 p) {
+        return texture(uVol, p).r * uTexRange + uTexMin;
+    }
+
+    vec2 hitBox(vec3 ro, vec3 rd) {
+        vec3 inv = 1.0 / rd;
+        vec3 t0 = (vec3(0.0) - ro) * inv;
+        vec3 t1 = (vec3(1.0) - ro) * inv;
+        vec3 tmin = min(t0, t1);
+        vec3 tmax = max(t0, t1);
+        return vec2(max(max(tmin.x, tmin.y), tmin.z),
+                    min(min(tmax.x, tmax.y), tmax.z));
+    }
+
+    void main() {
+        vec2 uv = gl_FragCoord.xy / uResolution;
+        vec2 ndc = uv * 2.0 - 1.0;
+        vec3 rd = normalize(uCamFwd
+            + uCamRight * (ndc.x * uTanHalfFov * uAspect)
+            + uCamUp * (ndc.y * uTanHalfFov));
+        vec3 ro = uCamPos;
+
+        vec2 tb = hitBox(ro, rd);
+        vec3 bg = vec3(0.004, 0.006, 0.013);
+        if (tb.x > tb.y || tb.y < 0.0) { fragColor = vec4(bg, 1.0); return; }
+
+        float tStart = max(tb.x, 0.0);
+        float tEnd = tb.y;
+        int steps = uSteps;
+        float dt = (tEnd - tStart) / float(steps);
+        float jitter = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+        float t = tStart + jitter * dt;
+
+        vec3 accum = vec3(0.0);
+        float trans = 1.0;
+
+        for (int i = 0; i < 768; i++) {
+            if (i >= steps) break;
+            vec3 p = ro + rd * t;
+            float d = densityAt(p);
+            float lutT = clamp((d - uLutMin) / max(uLutMax - uLutMin, 1e-4), 0.0, 1.0);
+            vec4 lc = texture(uLut, vec2(lutT, 0.5));
+
+            float sel = 1.0;
+            if (uSelMode == 1) {
+                sel = (d >= uSelMin && d <= uSelMax) ? 1.0 : 0.0;
+            } else if (uSelMode == 2) {
+                sel = (d >= uSelMin && d <= uSelMax) ? 1.0 : 0.08;
+            }
+
+            float alpha = 1.0 - exp(-lc.a * uOpacity * sel * dt * 30.0);
+            if (alpha > 0.0015) {
+                vec3 col = lc.rgb;
+                if (uLightOn > 0.5) {
+                    float o = 1.0 / 128.0;
+                    float gx = densityAt(p + vec3(o, 0.0, 0.0)) - densityAt(p - vec3(o, 0.0, 0.0));
+                    float gy = densityAt(p + vec3(0.0, o, 0.0)) - densityAt(p - vec3(0.0, o, 0.0));
+                    float gz = densityAt(p + vec3(0.0, 0.0, o)) - densityAt(p - vec3(0.0, 0.0, o));
+                    vec3 grad = vec3(-gx, -gy, -gz);
+                    float glen = length(grad);
+                    vec3 n = glen > 1e-7 ? grad / glen : vec3(0.0, 0.0, 1.0);
+                    vec3 h = normalize(uLightDir - rd);
+                    float diff = max(dot(n, uLightDir), 0.0);
+                    float spec = pow(max(dot(n, h), 0.0), 28.0) * uSpecular;
+                    col = col * (uAmbient + uLightStrength * diff) + vec3(spec);
+                }
+                accum += trans * alpha * col;
+                trans *= (1.0 - alpha);
+                if (trans < 0.02) break;
+            }
+            t += dt;
+        }
+
+        fragColor = vec4(accum + bg * trans, 1.0);
+    }`;
+
+    function compile(type, src) {
+        const sh = gl.createShader(type);
+        gl.shaderSource(sh, src);
+        gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+            throw new Error(gl.getShaderInfoLog(sh));
+        }
+        return sh;
+    }
+
+    function initGL() {
+        if (!gl) { glError = '当前浏览器不支持 WebGL2，无法进行体渲染。'; return; }
+        try {
+            const vs = compile(gl.VERTEX_SHADER, VS);
+            const fs = compile(gl.FRAGMENT_SHADER, FS);
+            program = gl.createProgram();
+            gl.attachShader(program, vs);
+            gl.attachShader(program, fs);
+            gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                throw new Error(gl.getProgramInfoLog(program));
+            }
+            gl.useProgram(program);
+
+            const names = ['uVol', 'uLut', 'uResolution', 'uCamPos', 'uCamRight', 'uCamUp', 'uCamFwd',
+                'uTanHalfFov', 'uAspect', 'uTexMin', 'uTexRange', 'uLutMin', 'uLutMax',
+                'uSteps', 'uSelMode', 'uSelMin', 'uSelMax', 'uOpacity',
+                'uLightDir', 'uLightStrength', 'uAmbient', 'uSpecular', 'uLightOn'];
+            names.forEach(n => uniforms[n] = gl.getUniformLocation(program, n));
+
+            gl.bindVertexArray(gl.createVertexArray());
+
+            // 3D 体纹理（R16F，三线性过滤）
+            texVol = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_3D, texVol);
+            gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+            // 传递函数 LUT（256×1 RGBA8）
+            texLut = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, texLut);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+            gl.uniform1i(uniforms.uVol, 0);
+            gl.uniform1i(uniforms.uLut, 1);
+            gl.uniform3f(uniforms.uLightDir, 0.45, 0.72, 0.53);
+            gl.uniform1f(uniforms.uAmbient, 0.34);
+            gl.uniform1f(uniforms.uSpecular, 0.35);
+            gl.uniform1f(uniforms.uTanHalfFov, Math.tan(45 * Math.PI / 180 / 2));
+
+            updateLutTexture();
+        } catch (e) {
+            glError = 'WebGL 初始化失败：' + e.message;
+        }
+        if (glError) {
+            els.noData.innerHTML = '<h2>无法初始化三维视图</h2><p class="err">' + glError + '</p>';
+        }
+    }
+
+    function updateLutTexture() {
+        if (!gl || !texLut) return;
+        const cmap = colormaps[state.tf.theme] || colormaps.inferno;
+        const data = new Uint8Array(256 * 4);
+        for (let i = 0; i < 256; i++) {
+            const t = i / 255;
+            const a = Math.pow(t, state.tf.gamma);
+            data[i * 4] = cmap[i * 3];
+            data[i * 4 + 1] = cmap[i * 3 + 1];
+            data[i * 4 + 2] = cmap[i * 3 + 2];
+            data[i * 4 + 3] = Math.round(255 * clamp(a, 0, 1));
+        }
+        gl.bindTexture(gl.TEXTURE_2D, texLut);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+        state.dirty = true;
+    }
+
+    function uploadVolume(data) {
+        if (!gl || !texVol) return;
+        const half = volumeToHalf(data, state.texMin, state.texMax);
+        gl.bindTexture(gl.TEXTURE_3D, texVol);
+        gl.texImage3D(gl.TEXTURE_3D, 0, gl.R16F, VOCAB, VOCAB, VOCAB, 0,
+            gl.RED, gl.HALF_FLOAT, half);
+        volReady = true;
+    }
+
+    /* ================================================================
+     * 3. 相机与渲染循环
+     * ================================================================ */
+    function resizeCanvas() {
+        const dpr = Math.min(1.5, window.devicePixelRatio || 1);
+        const w = Math.max(2, Math.round(els.gl.clientWidth * dpr));
+        const h = Math.max(2, Math.round(els.gl.clientHeight * dpr));
+        if (els.gl.width !== w || els.gl.height !== h) {
+            els.gl.width = w;
+            els.gl.height = h;
+            state.dirty = true;
+        }
+    }
+
+    function draw() {
+        if (!gl || !program) return;
+        resizeCanvas();
+        const w = els.gl.width, h = els.gl.height;
+        gl.viewport(0, 0, w, h);
+        gl.clearColor(0.004, 0.006, 0.013, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        if (!volReady) return;
+
+        const cam = state.cam;
+        const [cx, cy, cz] = cam.target;
+        const cp = Math.cos(cam.phi), sp = Math.sin(cam.phi);
+        const pos = [
+            cx + cam.dist * cp * Math.cos(cam.theta),
+            cy + cam.dist * sp,
+            cz + cam.dist * cp * Math.sin(cam.theta)
+        ];
+        let fx = cx - pos[0], fy = cy - pos[1], fz = cz - pos[2];
+        let fl = Math.hypot(fx, fy, fz) || 1;
+        fx /= fl; fy /= fl; fz /= fl;
+        // right = normalize(cross(forward, worldUp))，worldUp = (0,1,0)
+        let rx = -fz, ry = 0, rz = fx;
+        let rl = Math.hypot(rx, ry, rz) || 1;
+        rx /= rl; ry /= rl; rz /= rl;
+        // up = cross(right, forward)
+        const ux = ry * fz - rz * fy;
+        const uy = rz * fx - rx * fz;
+        const uz = rx * fy - ry * fx;
+
+        gl.useProgram(program);
+        gl.uniform1i(uniforms.uVol, 0);
+        gl.uniform1i(uniforms.uLut, 1);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_3D, texVol);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, texLut);
+
+        gl.uniform2f(uniforms.uResolution, w, h);
+        gl.uniform3f(uniforms.uCamPos, pos[0], pos[1], pos[2]);
+        gl.uniform3f(uniforms.uCamRight, rx, ry, rz);
+        gl.uniform3f(uniforms.uCamUp, ux, uy, uz);
+        gl.uniform3f(uniforms.uCamFwd, fx, fy, fz);
+        gl.uniform1f(uniforms.uAspect, w / h);
+        gl.uniform1f(uniforms.uTexMin, state.texMin);
+        gl.uniform1f(uniforms.uTexRange, Math.max(1e-4, state.texMax - state.texMin));
+        gl.uniform1f(uniforms.uLutMin, state.tf.lo);
+        gl.uniform1f(uniforms.uLutMax, state.tf.hi);
+        gl.uniform1i(uniforms.uSteps, state.tf.steps);
+        gl.uniform1i(uniforms.uSelMode, state.sel.active ? state.sel.mode : 0);
+        gl.uniform1f(uniforms.uSelMin, Math.min(state.sel.min, state.sel.max));
+        gl.uniform1f(uniforms.uSelMax, Math.max(state.sel.min, state.sel.max));
+        gl.uniform1f(uniforms.uOpacity, state.tf.opacity);
+        gl.uniform1f(uniforms.uLightOn, state.tf.lightOn ? 1 : 0);
+        gl.uniform1f(uniforms.uLightStrength, state.tf.lightStrength);
+
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        state.dirty = false;
+    }
+
+    function frame() {
+        if (state.tf.autoRotate) {
+            state.cam.theta += 0.0028;
+            state.dirty = true;
+        }
+        if (state.dirty) draw();
+        requestAnimationFrame(frame);
+    }
+
+    /* ================================================================
+     * 4. 数据加载
+     * ================================================================ */
+    function showLoading(show, text, frac) {
+        els.loading.classList.toggle('show', !!show);
+        if (text) els.loadText.textContent = text;
+        const pct = Math.round(clamp(frac || 0, 0, 1) * 100);
+        els.loadBar.style.width = pct + '%';
+        els.loadPct.textContent = pct + '%';
+    }
+
+    async function applyDataset(dataset) {
+        state.dataset = dataset;
+        state.step = 0;
+        state.volumeIndex = -1;
+        state.sel.active = false;
+        els.noData.style.display = 'none';
+
+        const s0 = dataset.summaries[0];
+        const n = dataset.summaries.length;
+
+        // 全局采样范围（密度值 -> 纹理归一化）
+        state.texMin = Math.floor(dataset.min * 10) / 10;
+        state.texMax = Math.ceil(dataset.max * 10) / 10;
+
+        // 传递函数默认映射：当前步 p10 ~ p99
+        state.tf.lo = Math.round(s0.p5 * 100) / 100;
+        state.tf.hi = Math.round(s0.p99 * 100) / 100;
+
+        // 滑杆范围
+        const sMin = Math.floor(dataset.min * 10) / 10;
+        const sMax = Math.ceil(dataset.max * 10) / 10;
+        ['lutMin', 'lutMax'].forEach(id => {
+            const el = $(id);
+            el.min = sMin; el.max = sMax;
+        });
+        $('lutMin').value = state.tf.lo;
+        $('lutMax').value = state.tf.hi;
+
+        els.stepRange.min = 0;
+        els.stepRange.max = Math.max(0, n - 1);
+        els.stepRange.value = 0;
+        els.stepTag.textContent = n + ' 个时间步';
+
+        setPlaying(false);
+        syncTfUI();
+        updateStepUI();
+        await showStep(0, true);
+        drawEvolution();
+        drawQuantiles();
+        drawOverlay();
+    }
+
+    async function loadFiles(files) {
+        const arr = Array.from(files).filter(f => /\.dat$/i.test(f.name));
+        if (!arr.length) { alert('所选内容中没有 .dat 数据文件。'); return; }
+        showLoading(true, '正在读取并统计时间步…', 0);
+        try {
+            const dataset = await loadNyxDataset(files, (frac, name) => {
+                showLoading(true, '正在解析 ' + name, frac);
+            });
+            await applyDataset(dataset);
+        } catch (e) {
+            console.error(e);
+            alert('数据加载失败：' + e.message);
+        } finally {
+            showLoading(false);
+        }
+    }
+
+    async function loadSamples() {
+        showLoading(true, '正在加载示例数据…', 0);
+        try {
+            const files = [];
+            for (let i = 0; i < SAMPLE_STEPS.length; i++) {
+                const id = SAMPLE_STEPS[i];
+                const resp = await fetch('nyx_sample/' + id + '.dat');
+                if (!resp.ok) throw new Error('无法读取 nyx_sample/' + id + '.dat');
+                const blob = await resp.blob();
+                files.push(new File([blob], id + '.dat'));
+                showLoading(true, '正在下载 ' + id + '.dat', (i + 1) / SAMPLE_STEPS.length / 2);
+            }
+            const dataset = await loadNyxDataset(files, (frac, name) => {
+                showLoading(true, '正在解析 ' + name, 0.5 + frac * 0.5);
+            });
+            await applyDataset(dataset);
+        } catch (e) {
+            console.error(e);
+            alert('示例数据加载失败：' + e.message +
+                '\n\n若通过 file:// 直接打开页面，浏览器会阻止读取本地文件。' +
+                '请使用本地 HTTP 服务器打开，或改用"选择数据文件夹"。');
+        } finally {
+            showLoading(false);
+        }
+    }
+
+    /* ================================================================
+     * 5. 时间步切换
+     * ================================================================ */
+    let loadToken = 0;
+    async function showStep(index, force) {
+        if (!state.dataset) return;
+        const n = state.dataset.summaries.length;
+        index = clamp(index, 0, n - 1);
+        state.step = index;
+        els.stepRange.value = index;
+        updateStepUI();
+
+        if (state.volumeIndex === index && !force) return;
+
+        const token = ++loadToken;
+        try {
+            const data = await state.dataset.getData(index);
+            if (token !== loadToken) return;
+            uploadVolume(data);
+            state.volumeIndex = index;
+            state.dirty = true;
+        } catch (e) {
+            console.error(e);
+            return;
+        }
+        updateHUD();
+        drawHistogram();
+        updateSelectionInfo();
+    }
+
+    function updateStepUI() {
+        if (!state.dataset) {
+            els.stepLabel.textContent = '— / —';
+            return;
+        }
+        const n = state.dataset.summaries.length;
+        const s = state.dataset.summaries[state.step];
+        els.stepLabel.textContent = (state.step + 1) + ' / ' + n;
+        els.hudStep.textContent = s.name.replace(/\.dat$/i, '') + '（第 ' + (state.step + 1) + ' 步）';
+        els.stMean.textContent = s.mean.toFixed(3);
+        els.stStd.textContent = s.std.toFixed(3);
+        els.stP1.textContent = s.p1.toFixed(2);
+        els.stP99.textContent = s.p99.toFixed(2);
+        els.hudRange.textContent = s.min.toFixed(2) + ' – ' + s.max.toFixed(2);
+        els.hudStats.textContent = s.mean.toFixed(3) + ' / ' + s.std.toFixed(3);
+    }
+
+    function updateHUD() {
+        if (!state.dataset) return;
+        if (!state.sel.active) {
+            els.hudSel.textContent = '未启用';
+            els.hudSelCount.textContent = '—';
+            return;
+        }
+        const a = Math.min(state.sel.min, state.sel.max);
+        const b = Math.max(state.sel.min, state.sel.max);
+        const s = state.dataset.summaries[state.step];
+        const frac = histogramFraction(s, a, b);
+        els.hudSel.textContent = a.toFixed(2) + ' – ' + b.toFixed(2);
+        const count = Math.round(frac * NYX_VOXEL_COUNT);
+        els.hudSelCount.textContent = (frac * 100).toFixed(2) + '% · ' + count.toLocaleString('zh-CN') + ' 体素';
+    }
+
+    let playTimer = null;
+    function setPlaying(p) {
+        state.playing = p;
+        els.playBtn.textContent = p ? '暂停' : '播放';
+        els.playBtn.classList.toggle('active', p);
+        if (playTimer) { clearInterval(playTimer); playTimer = null; }
+        if (p && state.dataset) {
+            playTimer = setInterval(() => {
+                if (!state.dataset) return;
+                const n = state.dataset.summaries.length;
+                showStep((state.step + 1) % n);
+            }, 850);
+        }
+    }
+
+    /* ================================================================
+     * 6. 直方图（可刷选）
+     * ================================================================ */
+    function fitCanvas(cv) {
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        const rect = cv.getBoundingClientRect();
+        const w = Math.max(80, Math.round(rect.width * dpr));
+        const h = Math.max(60, Math.round(rect.height * dpr));
+        if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+        const ctx = cv.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        return { ctx, w: rect.width, h: rect.height };
+    }
+
+    const PAD = { l: 38, r: 10, t: 12, b: 22 };
+
+    function plotRect(w, h) {
+        return { x: PAD.l, y: PAD.t, w: w - PAD.l - PAD.r, h: h - PAD.t - PAD.b };
+    }
+
+    function niceTicks(min, max, count) {
+        const span = max - min;
+        const raw = span / Math.max(1, count);
+        const mag = Math.pow(10, Math.floor(Math.log10(Math.max(1e-9, raw))));
+        const norm = raw / mag;
+        let step = mag;
+        if (norm >= 5) step = mag * 5;
+        else if (norm >= 2) step = mag * 2;
+        const ticks = [];
+        let v = Math.ceil(min / step) * step;
+        for (; v <= max + 1e-9; v += step) ticks.push(v);
+        return ticks;
+    }
+
+    function strokeGrid(ctx, r, yTicks, yOf, fmt) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(140,170,210,0.10)';
+        ctx.fillStyle = 'rgba(150,175,205,0.75)';
+        ctx.font = '10px Inter, "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = 1;
+        yTicks.forEach(v => {
+            const y = yOf(v);
+            ctx.beginPath();
+            ctx.moveTo(r.x, y);
+            ctx.lineTo(r.x + r.w, y);
+            ctx.stroke();
+            ctx.fillText(fmt(v), r.x - 5, y);
+        });
+        ctx.restore();
+    }
+
+    function xToValue(px, r, d0, d1) {
+        return d0 + clamp((px - r.x) / r.w, 0, 1) * (d1 - d0);
+    }
+    function valueToX(v, r, d0, d1) {
+        return r.x + clamp((v - d0) / (d1 - d0), 0, 1) * r.w;
+    }
+
+    function drawHistogram() {
+        const { ctx, w, h } = fitCanvas(els.hist);
+        ctx.clearRect(0, 0, w, h);
+        const r = plotRect(w, h);
+
+        if (!state.dataset) {
+            ctx.fillStyle = 'rgba(125,142,168,0.8)';
+            ctx.font = '11px Inter, "PingFang SC", "Microsoft YaHei", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('加载数据后显示 log₁₀ 密度直方图', w / 2, h / 2);
+            return;
+        }
+
+        const s = state.dataset.summaries[state.step];
+        const d0 = s.domainMin, d1 = s.domainMax;
+        const hist = s.hist;
+        let maxC = 1;
+        for (let i = 0; i < hist.length; i++) if (hist[i] > maxC) maxC = hist[i];
+        const logMax = Math.log10(1 + maxC);
+
+        const yOf = (c) => r.y + r.h * (1 - Math.log10(1 + c) / logMax);
+
+        strokeGrid(ctx, r, (() => {
+            const ticks = [];
+            for (let p = 0; Math.pow(10, p) <= maxC * 1.2; p++) ticks.push(Math.pow(10, p));
+            return ticks;
+        })(), v => yOf(v), v => {
+            if (v >= 1e4) return (v / 1e4).toFixed(0) + '万';
+            return String(Math.round(v));
+        });
+
+        // 柱体
+        const cmap = colormaps[state.tf.theme] || colormaps.inferno;
+        const bw = r.w / s.numBins;
+        for (let i = 0; i < s.numBins; i++) {
+            const c = hist[i];
+            if (c === 0) continue;
+            const y = yOf(c);
+            const t = clamp(i / (s.numBins - 1), 0, 1);
+            const ci = Math.round(t * 255) * 3;
+            ctx.fillStyle = 'rgba(' + cmap[ci] + ',' + cmap[ci + 1] + ',' + cmap[ci + 2] + ',0.78)';
+            ctx.fillRect(r.x + i * bw, y, Math.max(1, bw - 0.4), r.y + r.h - y);
+        }
+
+        // 传递函数映射标记
+        ctx.save();
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+        [state.tf.lo, state.tf.hi].forEach(v => {
+            const x = valueToX(v, r, d0, d1);
+            ctx.beginPath();
+            ctx.moveTo(x, r.y);
+            ctx.lineTo(x, r.y + r.h);
+            ctx.stroke();
+        });
+        ctx.restore();
+
+        // 刷选区域
+        if (state.sel.active) {
+            const a = valueToX(Math.min(state.sel.min, state.sel.max), r, d0, d1);
+            const b = valueToX(Math.max(state.sel.min, state.sel.max), r, d0, d1);
+            ctx.fillStyle = 'rgba(77,163,255,0.18)';
+            ctx.fillRect(a, r.y, Math.max(1, b - a), r.h);
+            ctx.strokeStyle = 'rgba(120,190,255,0.95)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(a, r.y); ctx.lineTo(a, r.y + r.h);
+            ctx.moveTo(b, r.y); ctx.lineTo(b, r.y + r.h);
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(140,200,255,0.9)';
+            ctx.font = '10px Inter, "PingFang SC", sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText('选区', a + 3, r.y + 10);
+        }
+
+        // x 轴
+        ctx.save();
+        ctx.strokeStyle = 'rgba(140,170,210,0.3)';
+        ctx.beginPath();
+        ctx.moveTo(r.x, r.y + r.h);
+        ctx.lineTo(r.x + r.w, r.y + r.h);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(150,175,205,0.75)';
+        ctx.font = '10px Inter, "PingFang SC", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        niceTicks(d0, d1, 5).forEach(v => {
+            const x = valueToX(v, r, d0, d1);
+            ctx.fillText(v.toFixed(0), x, r.y + r.h + 5);
+        });
+        ctx.textAlign = 'right';
+        ctx.fillText('log₁₀ 密度', r.x + r.w, r.y + r.h + 12);
+        ctx.restore();
+    }
+
+    // 刷选交互
+    let brushing = false;
+    function histPointerValue(ev) {
+        const rect = els.hist.getBoundingClientRect();
+        const px = ev.clientX - rect.left;
+        const r = plotRect(rect.width, rect.height);
+        const s = state.dataset.summaries[state.step];
+        return xToValue(px, r, s.domainMin, s.domainMax);
+    }
+
+    els.hist.addEventListener('pointerdown', (ev) => {
+        if (!state.dataset) return;
+        brushing = true;
+        try { els.hist.setPointerCapture(ev.pointerId); } catch (err) { /* 合成事件无活动指针 */ }
+        const v = histPointerValue(ev);
+        state.sel.active = true;
+        state.sel.min = v;
+        state.sel.max = v;
+        if (state.sel.mode === 0) setSelMode(2);
+        state.dirty = true;
+        updateSelectionInfo();
+        drawHistogram();
+    });
+    els.hist.addEventListener('pointermove', (ev) => {
+        if (!brushing) return;
+        state.sel.max = histPointerValue(ev);
+        state.sel.active = true;
+        state.dirty = true;
+        updateSelectionInfo();
+        drawHistogram();
+    });
+    els.hist.addEventListener('pointerup', (ev) => {
+        if (!brushing) return;
+        brushing = false;
+        try { els.hist.releasePointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+        if (Math.abs(state.sel.max - state.sel.min) < 0.02) {
+            const c = state.sel.min;
+            state.sel.min = c - 0.05;
+            state.sel.max = c + 0.05;
+        }
+        updateSelectionInfo();
+        drawHistogram();
+    });
+    els.hist.addEventListener('pointercancel', () => { brushing = false; });
+
+    function setSelMode(mode) {
+        state.sel.mode = mode;
+        document.querySelectorAll('#selModeGroup .btn').forEach(b => {
+            b.classList.toggle('active', Number(b.dataset.mode) === mode);
+        });
+        if (mode === 0) state.sel.active = false;
+        state.dirty = true;
+        updateSelectionInfo();
+        updateHUD();
+        drawHistogram();
+    }
+
+    function updateSelectionInfo() {
+        if (!state.dataset) return;
+        if (!state.sel.active) {
+            els.selInfo.textContent = '在直方图上拖拽框选密度区间，三维视图将实时只渲染匹配的体素。';
+            els.selInfo.classList.remove('sel');
+            updateHUD();
+            return;
+        }
+        const a = Math.min(state.sel.min, state.sel.max);
+        const b = Math.max(state.sel.min, state.sel.max);
+        const s = state.dataset.summaries[state.step];
+        const frac = histogramFraction(s, a, b);
+        const count = Math.round(frac * NYX_VOXEL_COUNT);
+        els.selInfo.innerHTML = '选区 <b style="color:#8ec5ff">' + a.toFixed(2) + ' – ' + b.toFixed(2) +
+            '</b>（log₁₀ρ） · 体素占比 <b style="color:#ffb86c">' + (frac * 100).toFixed(2) +
+            '%</b> · 约 ' + count.toLocaleString('zh-CN') + ' 个体素';
+        updateHUD();
+    }
+
+    /* ================================================================
+     * 7. 演化统计图
+     * ================================================================ */
+    function drawEvolution() {
+        const { ctx, w, h } = fitCanvas(els.evo);
+        ctx.clearRect(0, 0, w, h);
+        const r = plotRect(w, h);
+
+        const S = state.dataset ? state.dataset.summaries : null;
+        if (!S || S.length < 2) {
+            ctx.fillStyle = 'rgba(125,142,168,0.8)';
+            ctx.font = '11px Inter, "PingFang SC", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('需要至少 2 个时间步的数据', w / 2, h / 2);
+            return;
+        }
+
+        const means = S.map(s => s.mean);
+        const stds = S.map(s => s.std);
+        const mMin = Math.min(...means), mMax = Math.max(...means);
+        const sMin = 0, sMax = Math.max(...stds) * 1.12;
+        const pad = Math.max(0.02, (mMax - mMin) * 0.15);
+        const yMean = v => r.y + r.h * (1 - (v - (mMin - pad)) / ((mMax + pad) - (mMin - pad)));
+        const yStd = v => r.y + r.h * (1 - (v - sMin) / Math.max(1e-6, sMax - sMin));
+        const xOf = i => r.x + (S.length === 1 ? 0 : (i / (S.length - 1)) * r.w);
+
+        strokeGrid(ctx, r, niceTicks(mMin - pad, mMax + pad, 4), yMean, v => v.toFixed(2));
+
+        // 右轴刻度
+        ctx.save();
+        ctx.fillStyle = 'rgba(111,214,255,0.85)';
+        ctx.font = '10px Inter, "PingFang SC", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        niceTicks(0, sMax, 3).forEach(v => {
+            ctx.fillText(v.toFixed(2), r.x + r.w + 5, yStd(v));
+        });
+        ctx.restore();
+
+        // 均值
+        ctx.save();
+        ctx.strokeStyle = '#ff9f6b';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        means.forEach((v, i) => {
+            const x = xOf(i), y = yMean(v);
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        // 标准差
+        ctx.strokeStyle = '#6fd6ff';
+        ctx.beginPath();
+        stds.forEach((v, i) => {
+            const x = xOf(i), y = yStd(v);
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        // 当前步标记
+        const cx = xOf(state.step);
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx, r.y);
+        ctx.lineTo(cx, r.y + r.h);
+        ctx.stroke();
+        ctx.restore();
+
+        // x 轴
+        ctx.save();
+        ctx.fillStyle = 'rgba(150,175,205,0.7)';
+        ctx.font = '10px Inter, "PingFang SC", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        for (let k = 0; k <= 4; k++) {
+            const i = Math.round((k / 4) * (S.length - 1));
+            ctx.fillText(String(i), xOf(i), r.y + r.h + 5);
+        }
+        ctx.textAlign = 'right';
+        ctx.fillText('时间步', r.x + r.w, r.y + r.h + 5);
+        ctx.restore();
+    }
+
+    function drawQuantiles() {
+        const { ctx, w, h } = fitCanvas(els.quant);
+        ctx.clearRect(0, 0, w, h);
+        const r = plotRect(w, h);
+
+        const S = state.dataset ? state.dataset.summaries : null;
+        if (!S || S.length < 2) {
+            ctx.fillStyle = 'rgba(125,142,168,0.8)';
+            ctx.font = '11px Inter, "PingFang SC", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('分位数演化曲线', w / 2, h / 2);
+            return;
+        }
+
+        const all = [];
+        S.forEach(s => { all.push(s.p1, s.p99); });
+        const lo = Math.min(...all) - 0.05;
+        const hi = Math.max(...all) + 0.05;
+        const yOf = v => r.y + r.h * (1 - (v - lo) / Math.max(1e-6, hi - lo));
+        const xOf = i => r.x + (S.length === 1 ? 0 : (i / (S.length - 1)) * r.w);
+
+        strokeGrid(ctx, r, niceTicks(lo, hi, 4), yOf, v => v.toFixed(2));
+
+        const series = [
+            { key: 'p1', color: '#ff6b8b' },
+            { key: 'p50', color: '#e8eefc' },
+            { key: 'p99', color: '#8ef0b8' }
+        ];
+        ctx.save();
+        series.forEach(sr => {
+            ctx.strokeStyle = sr.color;
+            ctx.lineWidth = sr.key === 'p50' ? 1.2 : 1.8;
+            ctx.beginPath();
+            S.forEach((s, i) => {
+                const x = xOf(i), y = yOf(s[sr.key]);
+                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+        });
+        ctx.restore();
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(150,175,205,0.7)';
+        ctx.font = '10px Inter, "PingFang SC", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        for (let k = 0; k <= 4; k++) {
+            const i = Math.round((k / 4) * (S.length - 1));
+            ctx.fillText(String(i), xOf(i), r.y + r.h + 5);
+        }
+        ctx.restore();
+    }
+
+    function drawOverlay() {
+        const { ctx, w, h } = fitCanvas(els.overlay);
+        ctx.clearRect(0, 0, w, h);
+        const r = plotRect(w, h);
+
+        const S = state.dataset ? state.dataset.summaries : null;
+        if (!S || S.length < 2) {
+            ctx.fillStyle = 'rgba(125,142,168,0.8)';
+            ctx.font = '11px Inter, "PingFang SC", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('叠加不同时间步的概率密度曲线', w / 2, h / 2);
+            return;
+        }
+
+        const n = S.length;
+        const picks = Array.from(new Set([
+            0,
+            Math.round(n * 0.25),
+            Math.round(n * 0.5),
+            Math.round(n * 0.75),
+            n - 1
+        ])).filter(i => i >= 0 && i < n);
+
+        // 概率密度 = count / (total * binW)
+        const curves = picks.map(idx => {
+            const s = S[idx];
+            const total = s.hist.reduce((a, b) => a + b, 0);
+            const binW = (s.domainMax - s.domainMin) / s.numBins;
+            const dens = new Float32Array(s.numBins);
+            for (let i = 0; i < s.numBins; i++) dens[i] = s.hist[i] / (total * binW);
+            return { idx, dens, s };
+        });
+
+        let maxY = 0;
+        curves.forEach(c => { for (let i = 0; i < c.dens.length; i++) if (c.dens[i] > maxY) maxY = c.dens[i]; });
+        maxY = maxY * 1.08 || 1;
+
+        const d0 = curves[0].s.domainMin;
+        const d1 = curves[0].s.domainMax;
+        const yOf = v => r.y + r.h * (1 - v / maxY);
+        const xOfV = v => r.x + ((v - d0) / (d1 - d0)) * r.w;
+
+        strokeGrid(ctx, r, niceTicks(0, maxY, 3), yOf, v => v.toFixed(2));
+
+        ctx.save();
+        ctx.lineJoin = 'round';
+        curves.forEach((c, k) => {
+            const t = curves.length === 1 ? 0 : k / (curves.length - 1);
+            const hue = 210 - t * 190;
+            ctx.strokeStyle = 'hsl(' + hue + ', 85%, ' + (62 + t * 10) + '%)';
+            ctx.fillStyle = 'hsla(' + hue + ', 85%, 60%, 0.08)';
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            for (let i = 0; i < c.dens.length; i++) {
+                const v = d0 + (i + 0.5) * (d1 - d0) / c.dens.length;
+                const x = xOfV(v), y = yOf(c.dens[i]);
+                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+            ctx.lineTo(xOfV(d1), r.y + r.h);
+            ctx.lineTo(xOfV(d0), r.y + r.h);
+            ctx.closePath();
+            ctx.fill();
+        });
+        ctx.restore();
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(150,175,205,0.7)';
+        ctx.font = '10px Inter, "PingFang SC", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        niceTicks(d0, d1, 5).forEach(v => {
+            ctx.fillText(v.toFixed(0), xOfV(v), r.y + r.h + 5);
+        });
+        ctx.restore();
+
+        els.overlayNote.textContent = '曲线由蓝（早期）到橙（晚期）依次叠加；峰值逐渐降低、分布逐渐展宽并向低密度侧偏移。';
+    }
+
+    /* ================================================================
+     * 8. UI 事件绑定
+     * ================================================================ */
+    function syncTfUI() {
+        $('lutMin').value = state.tf.lo;
+        $('lutMax').value = state.tf.hi;
+        $('opacity').value = state.tf.opacity;
+        $('gamma').value = state.tf.gamma;
+        $('lightOn').checked = state.tf.lightOn;
+        $('lightStrength').value = state.tf.lightStrength;
+        $('stepsSel').value = String(state.tf.steps);
+        $('autoRotate').checked = state.tf.autoRotate;
+        $('themeSel').value = state.tf.theme;
+        $('lutMinVal').textContent = state.tf.lo.toFixed(2);
+        $('lutMaxVal').textContent = state.tf.hi.toFixed(2);
+        $('opacityVal').textContent = state.tf.opacity.toFixed(2);
+        $('gammaVal').textContent = state.tf.gamma.toFixed(2);
+        $('lightVal').textContent = state.tf.lightStrength.toFixed(2);
+    }
+
+    $('btnSample').addEventListener('click', loadSamples);
+    $('fileInput').addEventListener('change', (e) => {
+        if (e.target.files && e.target.files.length) loadFiles(e.target.files);
+        e.target.value = '';
+    });
+    $('dirInput').addEventListener('change', (e) => {
+        if (e.target.files && e.target.files.length) loadFiles(e.target.files);
+        e.target.value = '';
+    });
+
+    els.stepRange.addEventListener('input', () => {
+        setPlaying(false);
+        showStep(Number(els.stepRange.value));
+    });
+
+    $('btnPlay').addEventListener('click', () => setPlaying(!state.playing));
+    $('btnPrev').addEventListener('click', () => {
+        if (!state.dataset) return;
+        setPlaying(false);
+        showStep((state.step - 1 + state.dataset.summaries.length) % state.dataset.summaries.length);
+    });
+    $('btnNext').addEventListener('click', () => {
+        if (!state.dataset) return;
+        setPlaying(false);
+        showStep((state.step + 1) % state.dataset.summaries.length);
+    });
+
+    $('themeSel').addEventListener('change', (e) => {
+        state.tf.theme = e.target.value;
+        updateLutTexture();
+        drawHistogram();
+    });
+    $('lutMin').addEventListener('input', (e) => {
+        const v = Number(e.target.value);
+        state.tf.lo = Math.min(v, state.tf.hi - 0.05);
+        $('lutMinVal').textContent = state.tf.lo.toFixed(2);
+        $('lutMin').value = state.tf.lo;
+        state.dirty = true;
+        drawHistogram();
+    });
+    $('lutMax').addEventListener('input', (e) => {
+        const v = Number(e.target.value);
+        state.tf.hi = Math.max(v, state.tf.lo + 0.05);
+        $('lutMaxVal').textContent = state.tf.hi.toFixed(2);
+        $('lutMax').value = state.tf.hi;
+        state.dirty = true;
+        drawHistogram();
+    });
+    $('opacity').addEventListener('input', (e) => {
+        state.tf.opacity = Number(e.target.value);
+        $('opacityVal').textContent = state.tf.opacity.toFixed(2);
+        state.dirty = true;
+    });
+    $('gamma').addEventListener('input', (e) => {
+        state.tf.gamma = Number(e.target.value);
+        $('gammaVal').textContent = state.tf.gamma.toFixed(2);
+        updateLutTexture();
+    });
+    $('lightOn').addEventListener('change', (e) => {
+        state.tf.lightOn = e.target.checked;
+        state.dirty = true;
+    });
+    $('lightStrength').addEventListener('input', (e) => {
+        state.tf.lightStrength = Number(e.target.value);
+        $('lightVal').textContent = state.tf.lightStrength.toFixed(2);
+        state.dirty = true;
+    });
+    $('stepsSel').addEventListener('change', (e) => {
+        state.tf.steps = Number(e.target.value);
+        state.dirty = true;
+    });
+    $('autoRotate').addEventListener('change', (e) => {
+        state.tf.autoRotate = e.target.checked;
+        state.dirty = true;
+    });
+
+    document.querySelectorAll('#selModeGroup .btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (!state.dataset) return;
+            const mode = Number(btn.dataset.mode);
+            if (mode !== 0 && !state.sel.active) {
+                // 未选区时自动选取高密度 1%
+                applyPreset('high');
+                state.sel.mode = mode;
+            }
+            setSelMode(mode);
+        });
+    });
+
+    function applyPreset(kind) {
+        if (!state.dataset) return;
+        const s = state.dataset.summaries[state.step];
+        let a, b;
+        if (kind === 'high') { a = s.p99; b = s.domainMax; }
+        else if (kind === 'low') { a = s.domainMin; b = s.p1; }
+        else { a = s.p5; b = s.p95; }
+        state.sel.active = true;
+        state.sel.min = a;
+        state.sel.max = b;
+        if (state.sel.mode === 0) {
+            state.sel.mode = 2;
+            document.querySelectorAll('#selModeGroup .btn').forEach(x =>
+                x.classList.toggle('active', Number(x.dataset.mode) === 2));
+        }
+        state.dirty = true;
+        drawHistogram();
+        updateSelectionInfo();
+    }
+
+    document.querySelectorAll('[data-preset]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (!state.dataset) { alert('请先加载数据。'); return; }
+            applyPreset(btn.dataset.preset);
+        });
+    });
+    $('btnClearSel').addEventListener('click', () => {
+        state.sel.active = false;
+        state.sel.mode = 0;
+        document.querySelectorAll('#selModeGroup .btn').forEach(x =>
+            x.classList.toggle('active', Number(x.dataset.mode) === 0));
+        state.dirty = true;
+        drawHistogram();
+        updateSelectionInfo();
+    });
+
+    // 相机交互
+    let drag = null;
+    els.gl.addEventListener('pointerdown', (e) => {
+        drag = { x: e.clientX, y: e.clientY };
+        try { els.gl.setPointerCapture(e.pointerId); } catch (err) { /* 合成事件无活动指针 */ }
+    });
+    els.gl.addEventListener('pointermove', (e) => {
+        if (!drag) return;
+        const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+        drag.x = e.clientX; drag.y = e.clientY;
+        state.cam.theta += dx * 0.0075;
+        state.cam.phi = clamp(state.cam.phi + dy * 0.006, -1.45, 1.45);
+        state.dirty = true;
+    });
+    els.gl.addEventListener('pointerup', (e) => {
+        drag = null;
+        try { els.gl.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    });
+    els.gl.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        state.cam.dist = clamp(state.cam.dist * Math.exp(e.deltaY * 0.0012), 1.15, 6);
+        state.dirty = true;
+    }, { passive: false });
+    els.gl.addEventListener('dblclick', () => {
+        state.cam = { theta: 0.85, phi: 0.3, dist: 2.15, target: [0.5, 0.5, 0.5] };
+        state.dirty = true;
+    });
+
+    // 导出
+    function downloadCanvas(cv, name) {
+        const url = cv.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        a.click();
+    }
+    $('btnShot').addEventListener('click', () => {
+        if (!state.dataset) { alert('请先加载数据。'); return; }
+        draw();
+        downloadCanvas(els.gl, 'nyx_step_' + String(state.step).padStart(4, '0') + '.png');
+    });
+    $('exportHist').addEventListener('click', () => downloadCanvas(els.hist, 'nyx_histogram_step' + state.step + '.png'));
+    $('exportEvo').addEventListener('click', () => {
+        drawEvolution(); drawQuantiles();
+        downloadCanvas(els.evo, 'nyx_evolution_mean_std.png');
+        downloadCanvas(els.quant, 'nyx_evolution_quantiles.png');
+    });
+    $('exportOverlay').addEventListener('click', () => {
+        drawOverlay();
+        downloadCanvas(els.overlay, 'nyx_histogram_overlay.png');
+    });
+
+    /* ================================================================
+     * 9. 启动
+     * ================================================================ */
+    initGL();
+    window.addEventListener('resize', () => {
+        state.dirty = true;
+        drawHistogram();
+        drawEvolution();
+        drawQuantiles();
+        drawOverlay();
+    });
+    requestAnimationFrame(frame);
+    drawHistogram();
+    drawEvolution();
+    drawQuantiles();
+    drawOverlay();
+    syncTfUI();
+})();
+</script>
+</body>
+</html>
